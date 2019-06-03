@@ -22,9 +22,10 @@ import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.util.Size;
 
-import org.tensorflow.demo.segmentation.Segmentor;
 import org.tensorflow.demo.env.Logger;
+import org.tensorflow.demo.segmentation.Segmentor;
 
+import java.nio.ByteBuffer;
 import java.util.Vector;
 
 /**
@@ -39,7 +40,7 @@ public class OverlayTracker {
   private Size previewSize;
 
   private int colors[];
-  private long[] resultPixels;
+  private ByteBuffer resultPixels;
   private int[] pixels;
   private Vector<String> lastLabels;
   private Vector<String> labels;
@@ -111,14 +112,23 @@ public class OverlayTracker {
       pixels = new int[bmp.getHeight()*bmp.getWidth()];
     }
     resultPixels = potential.getPixels();
-
+    float maxVal = 0;
+    float val = 0;
     int numClass = potential.getNumClass();
     int[] visitedLabels = new int[numClass];
-    for(int i = 0; i < width; i++) {
-      for(int j = 0; j < height; j++) {
-        int classNo = (int)resultPixels[j*height+i]; // very tricky part
-        pixels[j*bmp.getWidth()+i] = colors[classNo];
-        visitedLabels[classNo] = 1;
+    for (int y = 0; y <height; y++) {
+      for (int x = 0; x < width; x++) {
+        int class_ = 0;
+        for (int c = 0; c <numClass ; c++) {
+          val = resultPixels.getFloat((y * width * numClass + x * numClass + c) * 4);
+          if (c == 0 || val > maxVal) {
+            maxVal = val;
+            class_ = c;
+          }
+        }
+        pixels[y*bmp.getWidth()+x] = class_ == 15? colors[class_]: colors[0];
+        visitedLabels[class_] = 1;
+
       }
     }
 

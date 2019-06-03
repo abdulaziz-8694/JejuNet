@@ -21,6 +21,7 @@ import android.graphics.Bitmap;
 import android.os.SystemClock;
 import android.os.Trace;
 
+import org.tensorflow.demo.SegmentorActivity;
 import org.tensorflow.demo.env.Logger;
 import org.tensorflow.lite.Interpreter;
 
@@ -50,7 +51,7 @@ public class TFLiteObjectSegmentationAPIModel implements Segmentor {
 
   // Pre-allocated buffers.
   private int[] intValues;
-  private long[][] pixelClasses;
+  private ByteBuffer pixelClasses;
   protected ByteBuffer imgData = null;
 
   private Interpreter tfLite;
@@ -103,10 +104,11 @@ public class TFLiteObjectSegmentationAPIModel implements Segmentor {
     }
 
     // Pre-allocate buffers.
-    d.imgData = ByteBuffer.allocateDirect(d.inputWidth*d.inputHeight*3);
+    d.imgData = ByteBuffer.allocateDirect(d.inputWidth * d.inputHeight * 3 * 4);
     d.imgData.order(ByteOrder.nativeOrder());
     d.intValues = new int[d.inputWidth * d.inputHeight];
-    d.pixelClasses = new long[1][d.inputHeight*d.inputWidth*numOutput];
+    d.pixelClasses = ByteBuffer.allocateDirect(d.inputWidth * d.inputHeight * numOutput * 4);
+    d.pixelClasses.order(ByteOrder.nativeOrder());
     return d;
   }
 
@@ -120,6 +122,9 @@ public class TFLiteObjectSegmentationAPIModel implements Segmentor {
     if (imgData != null) {
       imgData.rewind();
     }
+    if (pixelClasses != null) {
+      pixelClasses.rewind();
+    }
 
     // Log this method so that it can be analyzed with systrace.
     Trace.beginSection("segmentImage");
@@ -127,14 +132,19 @@ public class TFLiteObjectSegmentationAPIModel implements Segmentor {
     Trace.beginSection("preprocessBitmap");
     bitmap.getPixels(intValues, 0, bitmap.getWidth(), 0, 0, bitmap.getWidth(), bitmap.getHeight());
 
-    for (int j = 0; j < inputHeight; ++j) {
-      for (int i = 0; i < inputWidth; ++i) {
-        int pixel = intValues[j*inputWidth + i];
-        imgData.put((byte) ((pixel >> 16) & 0xFF));
-        imgData.put((byte) ((pixel >> 8) & 0xFF));
-        imgData.put((byte) (pixel & 0xFF));
+    int pixel = 0;
+    for (int i = 0; i < SegmentorActivity.TF_OD_API_INPUT_WIDTH; ++i) {
+      for (int j = 0; j < SegmentorActivity.TF_OD_API_INPUT_HEIGHT; ++j) {
+        if (pixel >= intValues.length) {
+          break;
+        }
+        final int val = intValues[pixel++];
+        imgData.putFloat((((val >> 16) & 0xFF) - 128.0f) / 128.0f);
+        imgData.putFloat((((val >> 8) & 0xFF) - 128.0f) / 128.0f);
+        imgData.putFloat(((val & 0xFF) - 128.0f) / 128.0f);
       }
     }
+
     Trace.endSection(); // preprocessBitmap
 
     // Run the inference call.
@@ -147,7 +157,7 @@ public class TFLiteObjectSegmentationAPIModel implements Segmentor {
     Trace.endSection(); // segmentImage
 
     return new Segmentation(
-                pixelClasses[0],
+                pixelClasses,
                 numClass,
                 inputWidth, inputHeight, endTime - startTime,
             tfLite.getLastNativeInferenceDurationNanoseconds() / 1000 / 1000);
